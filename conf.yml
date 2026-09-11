@@ -13,6 +13,13 @@ paths:
           type: int
           min: 0
           max: 9999
+    PUT:
+      query:
+        c:
+          type: str
+          allowed_chars: "abcdefgh"
+          allow_empty: false
+          max_length: 10
 
   "/send_msg_form":
     POST:

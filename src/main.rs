@@ -45,6 +45,7 @@ fn proxy_loop(entry_port: u16, redirect_port: u16, _paths: &Value) {
 
     for mut request in server.incoming_requests() {
         debug(&mut request);
+        handle_request();
     }
 }
 
@@ -61,4 +62,28 @@ fn debug(request: &mut Request) {
         request.headers(),
         body
     );
+}
+
+fn handle_request(){
+        /*
+        PSEUDO CODE
+        requested_path = request.path
+        if requested_path in paths (from the conf){
+            if requested_methode in paths allowed methode (There can be several authorized for the same route){
+                if valid_content { // Use Rust blocks.
+                    If it's a query parameter in a GET request, is that specific parameter allowed
+                        and is the expected format validated ?
+                    If it's a body parameter for a POST/PUT/PATCH request, is that parameter allowed
+                        and is the expected format validated?
+                    If it's a JSON body for a POST/PUT/PATCH request, the same applies.
+
+                    Add any cases I might have overlooked.
+
+                        println!("Request authorized");
+                }
+            }
+        }
+        println!("Unauthorized request");
+        
+        */
 }
