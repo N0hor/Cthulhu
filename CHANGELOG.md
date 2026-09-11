@@ -1,3 +1,9 @@
+# 0.0.3
+- Add docker with multi stage build
+- Add Cargo.lock <pk faire ?>
+- Todo : CHECKER LES VERSION DE TOUT LE PROJET ET LES METTRE À LATEST
+- Todo : lock la version des images (from docker... le hash tout ça)
+
 # 0.0.2
 - Remove the concept of data types since we receive only string data, to restrict input to numbers, we simply need to allow only numeric characters.
 - Add request validation system
