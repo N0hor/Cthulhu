@@ -1,0 +1,37 @@
+entry_port: 8080
+port_to_redirect_to_after_verification: 9000
+
+paths:
+  "/":
+    GET:
+      query:
+        a:
+          type: int
+          min: 0
+          max: 9999
+        b:
+          type: int
+          min: 0
+          max: 9999
+
+  "/send_msg_form":
+    POST:
+      body:
+        content_type: "application/x-www-form-urlencoded"
+        parameters:
+          msg:
+            type: str
+            allowed_chars: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+            max_length: 50
+            allow_empty: false
+
+  "/send_msg_json":
+    POST:
+      body:
+        content_type: "application/json"
+        parameters:
+          msg:
+            type: str
+            allowed_chars: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+            max_length: 50
+            allow_empty: false
