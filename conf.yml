@@ -6,13 +6,19 @@ paths:
     GET:
       query:
         a:
-          type: int
-          min: 0
-          max: 9999
+          allowed_chars: "0123456789"
+          max_length: 4
+          allow_empty: false
         b:
-          type: int
-          min: 0
-          max: 9999
+          allowed_chars: "0123456789"
+          max_length: 4
+          allow_empty: false
+    PUT:
+      query:
+        c:
+          allowed_chars: "abcdefgh"
+          max_length: 10
+          allow_empty: false
 
   "/send_msg_form":
     POST:
@@ -20,7 +26,6 @@ paths:
         content_type: "application/x-www-form-urlencoded"
         parameters:
           msg:
-            type: str
             allowed_chars: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
             max_length: 50
             allow_empty: false
@@ -31,7 +36,21 @@ paths:
         content_type: "application/json"
         parameters:
           msg:
-            type: str
+            allowed_chars: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+            max_length: 50
+            allow_empty: false
+
+  "/send_msg_with_query":
+    POST:
+      query:
+        z:
+          allowed_chars: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+          max_length: 20
+          allow_empty: false
+      body:
+        content_type: "application/x-www-form-urlencoded"
+        parameters:
+          msg:
             allowed_chars: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
             max_length: 50
             allow_empty: false
