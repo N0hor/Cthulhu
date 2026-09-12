@@ -1,8 +1,5 @@
-ARG RUST_VERSION=1.98.1
-ARG APP_NAME=cthulhu
-
 # Build stage with alpine
-FROM rust:${RUST_VERSION}-alpine AS build
+FROM rust:1.98.1-alpine@sha256:1716b3aa042d735f4566d14dc54e8037de9d69556e2d5dd58131d93a613d173d AS build
 
 ARG APP_NAME
 
@@ -26,11 +23,11 @@ RUN --mount=type=bind,source=src,target=src,readonly \
         --locked \
         --release \
         --target x86_64-unknown-linux-musl \
-    && cp "target/x86_64-unknown-linux-musl/release/${APP_NAME}" /bin/server
+    && cp "target/x86_64-unknown-linux-musl/release/cthulhu" /bin/server
 
 
 # Run stage with wolfi
-FROM cgr.dev/chainguard/static:latest
+FROM cgr.dev/chainguard/static@sha256:207a5673ab31ed83332e54ae33d0f1de4adb5984bd93b8309789889e7bf30ba6
 
 WORKDIR /app
 
