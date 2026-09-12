@@ -1,3 +1,11 @@
+# 0.0.4
+- Add request forward.
+- Add docker compose infra and fastapi demo.
+
+- Declared but absent JSON body params are enforced
+- Declared but absent QUERY params are not enforced
+- Duplicate query keys are not detected keeps the last value (to be modified, as the application might pick the first one).
+
 # 0.0.3
 - Add docker with multi stage build with locked version.
 - Add Cargo.lock to lock the exact versions of the dependencies.

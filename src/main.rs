@@ -25,10 +25,15 @@ fn main() {
         .unwrap()
         as u16;
 
+    let redirect_host = conf["host_to_redirect_to_after_verification"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
     let paths = conf["paths"].clone();
 
     // Proxy loop : intercept the request, validate its authorization, and forward it
-    let _ = proxy_loop(entry_port, redirect_port, &paths);
+    let _ = proxy_loop(entry_port, &redirect_host, redirect_port, &paths);
 }
 
 fn load_conf() -> Value {
@@ -41,13 +46,12 @@ fn load_conf() -> Value {
     return yml_content;
 }
 
-fn proxy_loop(entry_port: u16, redirect_port: u16, paths: &Value) {
+fn proxy_loop(entry_port: u16, redirect_host: &str, redirect_port: u16, paths: &Value) {
 
-    let server = Server::http(format!("127.0.0.1:{}", entry_port)).unwrap();
-    println!("Proxy listening on {}", entry_port);
+    let server = Server::http(format!("0.0.0.0:{}", entry_port)).unwrap();
+    println!("Cthulhu listening on {}", entry_port);
 
     for mut request in server.incoming_requests() {
-        // debug(&mut request);
 
         let body = {
             /* The request body is provided as a data stream, 
@@ -61,28 +65,11 @@ fn proxy_loop(entry_port: u16, redirect_port: u16, paths: &Value) {
             String::from_utf8_lossy(&bytes).to_string()
         };
 
-        handle_request(&request, &body, paths, redirect_port);
+        handle_request(request, &body, paths, redirect_host, redirect_port);
     }
 }
 
-/*
-fn debug(request: &mut Request) {
-    let mut body = Vec::new();
-    request.as_reader().read_to_end(&mut body).unwrap();
-
-    let body = String::from_utf8_lossy(&body);
-
-    println!(
-        "{} {} {:?} {}",
-        request.method(),
-        request.url(),
-        request.headers(),
-        body
-    );
-}
-*/
-
-fn handle_request(request: &Request, body: &str, paths: &Value, _redirect_port: u16) {
+fn handle_request(request: Request, body: &str, paths: &Value, redirect_host: &str, redirect_port: u16) {
 
     // Get method
     let method = request.method().to_string();
@@ -166,7 +153,7 @@ fn handle_request(request: &Request, body: &str, paths: &Value, _redirect_port: 
         }
     }
 
-    println!("Request authorized");
+    forward_request(request, body, redirect_host, redirect_port);
 }
 
 // Parse a query string or urlencoded body into a HashMap
@@ -331,8 +318,58 @@ fn validate_body(body: &str, body_schema: &Value) -> bool {
             }
         }
 
+        // Declared but absent JSON body params ARE enforced
+        if let Some(mapping) = parameters_schema.as_mapping() {
+            for (key, _) in mapping {
+                let key = key.as_str().unwrap();
+                if !object.contains_key(key) {
+                    return false;
+                }
+            }
+        }
+
         return true;
     }
 
     return false;
+}
+
+fn forward_request(request: Request, body: &str, redirect_host: &str, redirect_port: u16) {
+    let server_url = format!("http://{}:{}", redirect_host, redirect_port);
+    let url = format!("{}{}", server_url, request.url());
+
+    let method = request.method().as_str();
+
+    // Retrieves the original Content-Type to propagate it
+    let content_type = request
+        .headers()
+        .iter()
+        .find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("content-type"))
+        .map(|h| h.value.as_str().to_string());
+
+    let mut req = ureq::request(method, &url);
+    if let Some(ct) = content_type {
+        req = req.set("Content-Type", &ct);
+    }
+
+    let response = match req.send_string(body) {
+        Ok(r) => r,
+        Err(ureq::Error::Status(_, r)) => r,
+        Err(e) => {
+            eprintln!("Backend unreachable: {} ({})", url, e);
+            let resp = tiny_http::Response::from_string("Bad Gateway")
+                .with_status_code(502);
+            request.respond(resp).unwrap();
+            return;
+        }
+    };
+
+    let status = response.status();
+    let mut resp_body = Vec::new();
+    response.into_reader().read_to_end(&mut resp_body).unwrap();
+
+    let response = tiny_http::Response::from_data(resp_body)
+        .with_status_code(status);
+
+    request.respond(response).unwrap();
 }
