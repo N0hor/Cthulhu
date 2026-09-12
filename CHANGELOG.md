@@ -1,6 +1,10 @@
+# 0.0.3
+- Add docker with multi stage build with locked version.
+- Add Cargo.lock to lock the exact versions of the dependencies.
+
 # 0.0.2
 - Remove the concept of data types since we receive only string data, to restrict input to numbers, we simply need to allow only numeric characters.
-- Add request validation system
+- Add request validation system.
 
 # 0.0.1
 - Add project structure.
