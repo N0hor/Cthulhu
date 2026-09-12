@@ -1,3 +1,9 @@
+# 0.0.5
+- Add README.md
+- Add the license
+- Pushing Docker images of cthulhu 0.0.5 to GitHub
+- Add proxy_test.sh script for the demo
+
 # 0.0.4
 - Add request forward.
 - Add docker compose infra and fastapi demo.
