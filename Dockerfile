@@ -32,7 +32,6 @@ FROM cgr.dev/chainguard/static@sha256:207a5673ab31ed83332e54ae33d0f1de4adb5984bd
 WORKDIR /app
 
 COPY --from=build /bin/server /bin/server
-COPY conf.yml /app/conf.yml
 
 USER nonroot:nonroot
 
