@@ -1,5 +1,6 @@
 entry_port: 8080
 port_to_redirect_to_after_verification: 9000
+host_to_redirect_to_after_verification: "demo_app"
 
 paths:
   "/":

@@ -1,0 +1,16 @@
+services:
+  cthulhu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      - demo_app
+
+  demo_app:
+    build:
+      context: ./demo_app
+      dockerfile: Dockerfile
+    expose:
+      - "9000"
