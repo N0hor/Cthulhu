@@ -1,6 +1,6 @@
 services:
   cthulhu:
-    image: ghcr.io/n0hor/cthulhu:0.0.5
+    image: ghcr.io/n0hor/cthulhu:latest
     ports:
       - "8080:8080"
     volumes:

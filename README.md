@@ -15,14 +15,14 @@ bash proxy_test.sh
 ## Quick start
 #### Pull docker images :
 ```bash
-docker pull ghcr.io/n0hor/cthulhu:0.0.5
+docker pull ghcr.io/n0hor/cthulhu:latest
 ```
 
 #### Create docker-compose.yml :
 ```yml
 services:
   cthulhu:
-    image: ghcr.io/n0hor/cthulhu:0.0.5
+    image: ghcr.io/n0hor/cthulhu:latest
     ports:
       - "8080:8080"
     volumes:

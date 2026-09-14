@@ -5,7 +5,7 @@ use serde_yaml::{from_reader, Value};
 use std::fs::File;
 use std::io::Read;
 use tiny_http::{Server, Request};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use serde_json::Value as JsonValue;
 use url::form_urlencoded;
 
@@ -209,7 +209,19 @@ fn validate_string(value: &str, schema: &Value) -> bool {
 
 // Check if all query parameters are allowed
 fn validate_query(query: &str, query_schema: &Value) -> bool {
+
+    // Duplicate query keys ARE detected and forbidden (see 0.0.4 version)
+    let mut seen = HashSet::new();
+
+    for (key, _) in form_urlencoded::parse(query.as_bytes()) {
+        if !seen.insert(key.into_owned()) {
+            return false;
+        }
+    }
+
+
     let parameters = parse_query(query);
+
 
     for (key, value) in &parameters {
 
