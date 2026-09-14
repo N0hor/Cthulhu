@@ -1,3 +1,9 @@
+# 0.0.7
+- Fix an SSRF vulnerability via @ in the URL.
+- Fix a DoS vector involving unbounded bodies (request and response).
+- Fix a validation bypass involving duplicate keys (request and application/x-www-form-urlencoded body).
+- Fix overly lax Content-Type validation
+
 # 0.0.6
 - Duplicate query keys ARE detected and forbidden (see 0.0.4 version)
 - Update README.md and docker-compose for latest version pull

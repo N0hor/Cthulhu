@@ -10,6 +10,7 @@ use serde_json::Value as JsonValue;
 use url::form_urlencoded;
 
 const CONFIG_PATH: &str = "conf.yml";
+const MAX_BODY: u64 = 1024 * 1024;
 
 fn main() {
     // Load and parse configuration
@@ -54,43 +55,43 @@ fn proxy_loop(entry_port: u16, redirect_host: &str, redirect_port: u16, paths: &
     for mut request in server.incoming_requests() {
 
         let body = {
-            /* The request body is provided as a data stream, 
-            so Rust gives a reader that we must read to retrieve its content. */
             let mut bytes = Vec::new();
 
+            // Reads up to MAX_BODY + 1 byte to detect an overflow.
             request.as_reader()
+                .take(MAX_BODY + 1)
                 .read_to_end(&mut bytes)
                 .unwrap();
 
-            String::from_utf8_lossy(&bytes).to_string()
+            if bytes.len() as u64 > MAX_BODY {
+                println!("Unauthorized request");
+                let resp = tiny_http::Response::from_string("Payload Too Large")
+                    .with_status_code(413);
+                request.respond(resp).unwrap();
+                continue;
+            }
+
+            bytes
         };
 
         handle_request(request, &body, paths, redirect_host, redirect_port);
     }
 }
 
-fn handle_request(request: Request, body: &str, paths: &Value, redirect_host: &str, redirect_port: u16) {
+fn handle_request(request: Request, body: &[u8], paths: &Value, redirect_host: &str, redirect_port: u16) {
 
     // Get method
     let method = request.method().to_string();
 
     // Parse url : path + query
-    let full_url = request.url();
-    let requested_path;
-    let query_string;
-
-    if full_url.contains('?') {
-        let parts: Vec<&str> = full_url.splitn(2, '?').collect();
-
-        requested_path = parts[0];
-        query_string = parts[1];
-    } else {
-        requested_path = full_url;
-        query_string = "";
-    }
+    let full_url = request.url().to_string();
+    let (requested_path, query_string) = match full_url.split_once('?') {
+        Some((path, query)) => (path.to_string(), query.to_string()),
+        None => (full_url.clone(), String::new()),
+    };
 
     // Is requested_path match a path in the config ?
-    let path_config = match paths.get(requested_path) {
+    let path_config = match paths.get(&requested_path) {
         Some(value) => value, // if we match value yes !
         None => { println!("Unauthorized request"); return; } // else
     };
@@ -104,7 +105,7 @@ fn handle_request(request: Request, body: &str, paths: &Value, redirect_host: &s
     // Query string validation
     match method_config.get("query") {
         Some(query_schema) => { // if there is a query parameter
-            if !validate_query(query_string, query_schema) { // but not allowed in the conf
+            if !validate_query(&query_string, query_schema) { // but not allowed in the conf
                 println!("Unauthorized request");
                 return;
             }
@@ -135,7 +136,22 @@ fn handle_request(request: Request, body: &str, paths: &Value, redirect_host: &s
                 content_type
             };
 
-            if !actual_content_type.starts_with(expected_content_type) {
+            // Mime type validation
+            let actual_mime = actual_content_type
+                .split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+
+            let expected_mime = expected_content_type
+                .split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+
+            if actual_mime != expected_mime {
                 println!("Unauthorized request");
                 return;
             }
@@ -153,7 +169,7 @@ fn handle_request(request: Request, body: &str, paths: &Value, redirect_host: &s
         }
     }
 
-    forward_request(request, body, redirect_host, redirect_port);
+    forward_request(request, body, &requested_path, &query_string, redirect_host, redirect_port);
 }
 
 // Parse a query string or urlencoded body into a HashMap
@@ -247,17 +263,30 @@ fn validate_query(query: &str, query_schema: &Value) -> bool {
 }
 
 // Check if the request body follows the configured rules
-fn validate_body(body: &str, body_schema: &Value) -> bool {
+fn validate_body(body: &[u8], body_schema: &Value) -> bool {
 
     // Get the expected content type
     let content_type = body_schema["content_type"]
         .as_str()
         .unwrap_or("");
 
+    let body_str = match std::str::from_utf8(body) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
     // Handle form-urlencoded data
     if content_type == "application/x-www-form-urlencoded" {
 
-        let parameters = parse_query(body);
+        // Detect content type duplication
+        let mut seen = HashSet::new();
+        for (key, _) in form_urlencoded::parse(body_str.as_bytes()) {
+            if !seen.insert(key.into_owned()) {
+                return false;
+            }
+        }
+
+        let parameters = parse_query(body_str);
         let parameters_schema = &body_schema["parameters"];
 
         for (key, value) in &parameters {
@@ -278,6 +307,16 @@ fn validate_body(body: &str, body_schema: &Value) -> bool {
             }
         }
 
+        // Declared but absent form-urlencoded params ARE enforced
+        if let Some(mapping) = parameters_schema.as_mapping() {
+            for (key, _) in mapping {
+                let key = key.as_str().unwrap();
+                if !parameters.contains_key(key) {
+                    return false;
+                }
+            }
+        }
+
         return true;
     }
 
@@ -285,7 +324,7 @@ fn validate_body(body: &str, body_schema: &Value) -> bool {
     if content_type == "application/json" {
 
         // Try to parse the body as JSON
-        let json = serde_json::from_str::<JsonValue>(body);
+        let json = serde_json::from_str::<JsonValue>(body_str);
 
         if json.is_err() {
             return false;
@@ -346,9 +385,32 @@ fn validate_body(body: &str, body_schema: &Value) -> bool {
     return false;
 }
 
-fn forward_request(request: Request, body: &str, redirect_host: &str, redirect_port: u16) {
-    let server_url = format!("http://{}:{}", redirect_host, redirect_port);
-    let url = format!("{}{}", server_url, request.url());
+fn forward_request(
+    request: Request,
+    body: &[u8],
+    requested_path: &str,
+    query_string: &str,
+    redirect_host: &str,
+    redirect_port: u16,
+) {
+    // Constructs a safe base URL
+    let mut url = match url::Url::parse(&format!("http://{}:{}", redirect_host, redirect_port)) {
+        Ok(u) => u,
+        Err(e) => {
+            eprintln!("Invalid backend URL: {}", e);
+            let resp = tiny_http::Response::from_string("Bad Gateway")
+                .with_status_code(502);
+            request.respond(resp).unwrap();
+            return;
+        }
+    };
+
+    url.set_path(requested_path);
+    url.set_query(if query_string.is_empty() {
+        None
+    } else {
+        Some(query_string)
+    });
 
     let method = request.method().as_str();
 
@@ -359,12 +421,12 @@ fn forward_request(request: Request, body: &str, redirect_host: &str, redirect_p
         .find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("content-type"))
         .map(|h| h.value.as_str().to_string());
 
-    let mut req = ureq::request(method, &url);
+    let mut req = ureq::request(method, url.as_str());
     if let Some(ct) = content_type {
         req = req.set("Content-Type", &ct);
     }
 
-    let response = match req.send_string(body) {
+    let response = match req.send_bytes(body) {
         Ok(r) => r,
         Err(ureq::Error::Status(_, r)) => r,
         Err(e) => {
@@ -378,7 +440,18 @@ fn forward_request(request: Request, body: &str, redirect_host: &str, redirect_p
 
     let status = response.status();
     let mut resp_body = Vec::new();
-    response.into_reader().read_to_end(&mut resp_body).unwrap();
+    response.into_reader()
+        .take(MAX_BODY + 1)
+        .read_to_end(&mut resp_body)
+        .unwrap();
+
+    if resp_body.len() as u64 > MAX_BODY {
+        eprintln!("Backend response too large");
+        let resp = tiny_http::Response::from_string("Bad Gateway")
+            .with_status_code(502);
+        request.respond(resp).unwrap();
+        return;
+    }
 
     let response = tiny_http::Response::from_data(resp_body)
         .with_status_code(status);
