@@ -1,3 +1,7 @@
+# 0.0.6
+- Duplicate query keys ARE detected and forbidden (see 0.0.4 version)
+- Update README.md and docker-compose for latest version pull
+
 # 0.0.5
 - Add README.md
 - Add the license
