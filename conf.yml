@@ -55,3 +55,10 @@ paths:
             allowed_chars: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
             max_length: 50
             allow_empty: false
+
+  "/upload_image":
+    POST:
+      body:
+        content_type: "image" # as content type is not useful for image validation (it cannot be trusted), we just check signature and extension
+        max_size: 5242880
+        allowed_extensions: ["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff"]

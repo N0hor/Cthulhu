@@ -107,6 +107,32 @@ docker compose build --no-cache
 docker compose up
 ```
 
+## Unit tests
+```bash
+cd demo_app
+python3 -m venv venv
+source venv/bin/activate
+
+pip install fastapi[standard]
+pip install uvicorn
+uvicorn main:app --port 9000
+```
+
+Update conf.yml
+```yml
+host_to_redirect_to_after_verification: "127.0.0.1"
+```
+
+In another cli :
+```bash
+cargo run
+```
+
+In another cli :
+```bash
+cargo test --test proxy_tests -- --nocapture
+```
+
 ## Programming paradigm
 AI-assisted pseudocode driven development. Commented and adapted by a human.
 
