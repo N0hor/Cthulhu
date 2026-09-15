@@ -1,3 +1,8 @@
+# 1.0.0
+- Cthulhu return a 403 when request are not allowed
+- Add image management and security
+- Add unit tests
+
 # 0.0.7
 - Fix an SSRF vulnerability via @ in the URL.
 - Fix a DoS vector involving unbounded bodies (request and response).

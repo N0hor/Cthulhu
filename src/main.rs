@@ -8,9 +8,11 @@ use tiny_http::{Server, Request};
 use std::collections::{HashMap, HashSet};
 use serde_json::Value as JsonValue;
 use url::form_urlencoded;
+use multipart::server::Multipart;
+use std::io::Cursor;
 
 const CONFIG_PATH: &str = "conf.yml";
-const MAX_BODY: u64 = 1024 * 1024;
+const MAX_BODY: u64 = 10 * 1024 * 1024;
 
 fn main() {
     // Load and parse configuration
@@ -64,10 +66,7 @@ fn proxy_loop(entry_port: u16, redirect_host: &str, redirect_port: u16, paths: &
                 .unwrap();
 
             if bytes.len() as u64 > MAX_BODY {
-                println!("Unauthorized request");
-                let resp = tiny_http::Response::from_string("Payload Too Large")
-                    .with_status_code(413);
-                request.respond(resp).unwrap();
+                return_an_invalid_request_to_client(request);
                 continue;
             }
 
@@ -93,26 +92,26 @@ fn handle_request(request: Request, body: &[u8], paths: &Value, redirect_host: &
     // Is requested_path match a path in the config ?
     let path_config = match paths.get(&requested_path) {
         Some(value) => value, // if we match value yes !
-        None => { println!("Unauthorized request"); return; } // else
+        None => { return_an_invalid_request_to_client(request); return; } // else
     };
 
     // Is method allowed for this path in the config ?
     let method_config = match path_config.get(&method) {
         Some(value) => value,
-        None => { println!("Unauthorized request"); return; }
+        None => { return_an_invalid_request_to_client(request); return; }
     };
 
     // Query string validation
     match method_config.get("query") {
         Some(query_schema) => { // if there is a query parameter
             if !validate_query(&query_string, query_schema) { // but not allowed in the conf
-                println!("Unauthorized request");
+                return_an_invalid_request_to_client(request);
                 return;
             }
         }
         None => { // if their is a query parameter, but without content 
             if !query_string.is_empty() {
-                println!("Unauthorized request");
+                return_an_invalid_request_to_client(request);
                 return;
             }
         }
@@ -123,47 +122,34 @@ fn handle_request(request: Request, body: &[u8], paths: &Value, redirect_host: &
         Some(body_schema) => {
             let expected_content_type = body_schema["content_type"].as_str().unwrap_or("");
 
-            let actual_content_type = {
-                let mut content_type = "";
-                for header in request.headers().iter() {
-                    let name = header.field.as_str().to_ascii_lowercase();
+            let actual_content_type: String = request
+                .headers()
+                .iter()
+                .find(|h| h.field.as_str().as_str().eq_ignore_ascii_case("content-type"))
+                .map(|h| h.value.as_str().to_string())
+                .unwrap_or_default();
 
-                    if name == "content-type" {
-                        content_type = header.value.as_str();
-                        break;
-                    }
+            // Mime check skipped for images
+            if expected_content_type != "image" {
+                let actual_mime = actual_content_type
+                    .split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+                let expected_mime = expected_content_type
+                    .split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+
+                if actual_mime != expected_mime {
+                    return_an_invalid_request_to_client(request);
+                    return;
                 }
-                content_type
-            };
-
-            // Mime type validation
-            let actual_mime = actual_content_type
-                .split(';')
-                .next()
-                .unwrap_or("")
-                .trim()
-                .to_ascii_lowercase();
-
-            let expected_mime = expected_content_type
-                .split(';')
-                .next()
-                .unwrap_or("")
-                .trim()
-                .to_ascii_lowercase();
-
-            if actual_mime != expected_mime {
-                println!("Unauthorized request");
-                return;
             }
 
-            if !validate_body(body, body_schema) {
-                println!("Unauthorized request");
+            if !validate_body(body, body_schema, &actual_content_type) {
+                return_an_invalid_request_to_client(request);
                 return;
             }
         }
-        None => { // if there is no authorized body, but the request includes one
+        None => {
             if !body.is_empty() {
-                println!("Unauthorized request");
+                return_an_invalid_request_to_client(request);
                 return;
             }
         }
@@ -263,12 +249,16 @@ fn validate_query(query: &str, query_schema: &Value) -> bool {
 }
 
 // Check if the request body follows the configured rules
-fn validate_body(body: &[u8], body_schema: &Value) -> bool {
+fn validate_body(body: &[u8], body_schema: &Value, actual_content_type: &str) -> bool {
 
     // Get the expected content type
     let content_type = body_schema["content_type"]
         .as_str()
         .unwrap_or("");
+
+    if content_type == "image" {
+        return validate_image(body, body_schema, actual_content_type);
+    }
 
     let body_str = match std::str::from_utf8(body) {
         Ok(s) => s,
@@ -457,4 +447,88 @@ fn forward_request(
         .with_status_code(status);
 
     request.respond(response).unwrap();
+}
+
+fn return_an_invalid_request_to_client(request: Request) {
+    let resp = tiny_http::Response::from_string("Forbidden")
+        .with_status_code(403);
+    request.respond(resp).unwrap();
+}
+
+fn validate_image(body: &[u8], body_schema: &Value, actual_content_type: &str) -> bool {
+    // Boundary issu of Content-Type
+    let boundary = match actual_content_type.split(';')
+        .find_map(|p| p.trim().strip_prefix("boundary="))
+    {
+        Some(b) => b.trim_matches('"').to_string(),
+        None => return false,
+    };
+
+    let max_size = body_schema["max_size"].as_u64().unwrap_or(u64::MAX);
+
+    let allowed_extensions: Vec<String> = match body_schema["allowed_extensions"].as_sequence() {
+        Some(seq) => seq.iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_ascii_lowercase()))
+            .collect(),
+        None => return false,
+    };
+
+    let mut multipart = Multipart::with_body(Cursor::new(body), boundary);
+
+    let mut found = false;
+
+    while let Ok(Some(mut field)) = multipart.read_entry() {
+        let filename = match &field.headers.filename {
+            Some(f) => f.clone(),
+            None => continue,
+        };
+
+        // File extension validation
+        let file_ext = match std::path::Path::new(&filename)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| normalize_ext(&e.to_ascii_lowercase()))
+        {
+            Some(e) => e,
+            None => return false,
+        };
+
+        if !allowed_extensions.iter().any(|e| normalize_ext(e) == file_ext) {
+            return false;
+        }
+
+        let mut data = Vec::new();
+        if field.data.read_to_end(&mut data).is_err() {
+            return false;
+        }
+        if data.len() as u64 > max_size {
+            return false;
+        }
+
+        let kind = match infer::get(&data) {
+            Some(k) => k,
+            None => return false,
+        };
+
+        if !kind.mime_type().starts_with("image/") {
+            return false;
+        }
+
+        // Consistency between file extension and detected type
+        if normalize_ext(&kind.extension().to_ascii_lowercase()) != file_ext {
+            return false;
+        }
+
+        found = true;
+        break;
+    }
+
+    found
+}
+
+fn normalize_ext(ext: &str) -> String {
+    match ext {
+        "jpeg" => "jpg".to_string(),
+        other => other.to_string(),
+    }
 }
